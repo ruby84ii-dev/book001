@@ -1,20 +1,20 @@
 /* ==========================================
    매일 쑥쑥 멋진 나 - Firebase Auth & Firestore 연동 모듈
-   Firebase Web SDK v10 (Modular Version)
+   Firebase Web SDK v10 (Compat Version for Web Browsers)
    ========================================== */
 
-// Firebase 프로젝트 설정 객체
-// 💡 실제 배포 시 본인의 Firebase 콘솔 설정값으로 교체하거나 환경변수를 활용할 수 있습니다.
+// 발급받으신 실제 Firebase 프로젝트 설정
 const firebaseConfig = {
-  apiKey: "AIzaSyDemoConfigKeyForGrowingMeApp2026",
-  authDomain: "growing-me-app.firebaseapp.com",
-  projectId: "growing-me-app",
-  storageBucket: "growing-me-app.appspot.com",
-  messagingSenderId: "123456789012",
-  appId: "1:123456789012:web:demo1234567890"
+  apiKey: "AIzaSyAoM94pfj5NVrVc0Oa2R1WaZUFw-vnjkyY",
+  authDomain: "book-181b1.firebaseapp.com",
+  projectId: "book-181b1",
+  storageBucket: "book-181b1.firebasestorage.app",
+  messagingSenderId: "472387327992",
+  appId: "1:472387327992:web:37eeca6328f2ba63d4280d",
+  measurementId: "G-BV75DWV75M"
 };
 
-// CDN 전역 Firebase SDK 참조 준비
+// CDN 전역 Firebase SDK 참조
 let firebaseApp = null;
 let firebaseAuth = null;
 let firebaseDb = null;
@@ -32,10 +32,10 @@ function initFirebase() {
       firebaseAuth = firebase.auth();
       firebaseDb = firebase.firestore();
       googleProvider = new firebase.auth.GoogleAuthProvider();
-      console.log("🔥 Firebase가 성공적으로 연결되었습니다!");
+      console.log("🔥 Firebase에 성공적으로 연결되었습니다! (Project ID: book-181b1)");
       return true;
     } catch (e) {
-      console.warn("⚠️ Firebase 초기화 중 참고사항 (데모 모드):", e.message);
+      console.warn("⚠️ Firebase 초기화 에러:", e.message);
       return false;
     }
   }
