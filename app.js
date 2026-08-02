@@ -240,9 +240,13 @@ function syncToFirestore() {
   if (!firebaseDb || !state.currentUser) return;
   
   const classId = getClassId();
+  const userNickname = (state.userClass && state.userClass.nickname && state.userClass.nickname.trim())
+    ? state.userClass.nickname.trim()
+    : (state.currentUser.displayName || '멋진 어린이');
+
   const payload = {
     uid: state.currentUser.uid,
-    nickname: state.currentUser.displayName || state.userClass.nickname,
+    nickname: userNickname,
     jumpRopes: state.jumpRopes,
     readings: state.readings,
     userClass: state.userClass,
