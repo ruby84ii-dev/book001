@@ -1,0 +1,13 @@
+# System & Editor Files
+.DS_Store
+Thumbs.db
+*.log
+
+# Environment Files
+.env
+.env.local
+
+# Node modules / Build outputs
+node_modules/
+dist/
+.vercel
