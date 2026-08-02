@@ -32,6 +32,7 @@ function initFirebase() {
       firebaseAuth = firebase.auth();
       firebaseDb = firebase.firestore();
       googleProvider = new firebase.auth.GoogleAuthProvider();
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
       console.log("🔥 Firebase에 성공적으로 연결되었습니다! (Project ID: book-181b1)");
       return true;
     } catch (e) {

@@ -139,6 +139,8 @@ function initFirebaseApp() {
       state.currentUser = null;
       if (loginBtn) loginBtn.style.display = 'inline-flex';
       if (profileChip) profileChip.style.display = 'none';
+      state.jumpRopes = [];
+      state.readings = [];
       initLocalData();
       renderAll();
     }
@@ -264,7 +266,16 @@ function setupEvents() {
   });
 
   document.getElementById('btn-logout')?.addEventListener('click', () => {
-    if (firebaseAuth) firebaseAuth.signOut().then(() => alert("로그아웃 되었습니다."));
+    if (firebaseAuth) {
+      firebaseAuth.signOut().then(() => {
+        state.jumpRopes = [];
+        state.readings = [];
+        localStorage.removeItem(STORAGE_KEYS.JUMP_ROPE);
+        localStorage.removeItem(STORAGE_KEYS.READING);
+        renderAll();
+        alert("로그아웃 되었습니다.");
+      });
+    }
   });
 
   // 탭
