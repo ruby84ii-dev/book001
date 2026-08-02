@@ -237,6 +237,7 @@ function syncToFirestore() {
   
   const classId = getClassId();
   const payload = {
+    uid: state.currentUser.uid,
     nickname: state.currentUser.displayName || state.userClass.nickname,
     jumpRopes: state.jumpRopes,
     readings: state.readings,
@@ -246,10 +247,14 @@ function syncToFirestore() {
   };
 
   // 내 개인 문서 저장
-  firebaseDb.collection('users').doc(state.currentUser.uid).set(payload).catch(e => console.error(e));
+  firebaseDb.collection('users').doc(state.currentUser.uid).set(payload).catch(e => console.error("users 저장 참고:", e));
 
-  // 우리반 공용 공간 멤버 문서에 저장 (반 친구들과 공유)
-  firebaseDb.collection('classes').doc(classId).collection('members').doc(state.currentUser.uid).set(payload).catch(e => console.error(e));
+  // 우리반 공용 공간에 저장 (친구들이 읽을 수 있도록)
+  firebaseDb.collection('classes').doc(classId).collection('members').doc(state.currentUser.uid).set(payload)
+    .then(() => {
+      console.log("🔥 반 친구 공유 공간에 성공적으로 업로드되었습니다!");
+    })
+    .catch(e => console.error("classes 멤버 저장 참고 (보안규칙 확인 필요):", e));
 }
 
 function setupDates() {
