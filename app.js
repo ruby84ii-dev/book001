@@ -64,6 +64,7 @@ let state = {
 
 let jumpChartInstance = null;
 let classUnsubscribe = null;
+let selectedAchievementYM = new Date().toISOString().substring(0, 7);
 
 // --- 2. 초기화 ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -85,7 +86,6 @@ function initClassConfig() {
   updateClassHeaderDisplay();
 }
 
-// 띄어쓰기 공백을 제거한 안전한 학급 ID 생성 (학급 룸 이탈 방지)
 function getClassId() {
   const cleanSchool = (state.userClass.school || '해밀초등학교').trim().replace(/\s+/g, '');
   const cleanGrade = (state.userClass.grade || '3').toString().trim();
@@ -153,7 +153,6 @@ function initFirebaseApp() {
   });
 }
 
-// 학급 실시간 통합 구독 수신기 (Firestore Realtime Class Listener)
 function listenToClassData() {
   if (classUnsubscribe) classUnsubscribe();
   if (!firebaseDb) return;
@@ -170,7 +169,7 @@ function listenToClassData() {
       state.classmatesData = mates;
       renderAll();
     }, err => {
-      console.warn("학급 데이터 실시간 리스너 참고:", err);
+      console.warn("학급 데이터 리스너 참고:", err);
     });
 }
 
@@ -258,7 +257,7 @@ function syncToFirestore() {
 
   firebaseDb.collection('classes').doc(classId).collection('members').doc(state.currentUser.uid).set(payload)
     .then(() => {
-      console.log("🔥 학급 공유 공간에 데이터가 성공적으로 동기화되었습니다!");
+      console.log("🔥 학급 공유 공간에 데이터가 동기화되었습니다!");
     })
     .catch(e => console.error("classes 멤버 저장 참고:", e));
 }
@@ -457,6 +456,12 @@ function setupEvents() {
   document.getElementById('book-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'book-modal') closeModal();
   });
+
+  // 월별 성취 셀렉터 이벤트
+  document.getElementById('cert-month-select')?.addEventListener('change', (e) => {
+    selectedAchievementYM = e.target.value;
+    renderCertificate();
+  });
 }
 
 function switchTab(tabId) {
@@ -521,7 +526,7 @@ function renderAll() {
   renderRecommendations();
 
   renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterflyStage);
-  renderCertificate(readCount, jumpTotalSum, beanStage, butterflyStage);
+  renderCertificate();
 }
 
 function renderHomeMascots(readCount, jumpCount, beanStage, butterflyStage) {
@@ -752,7 +757,6 @@ function renderReadingHistoryList() {
   `).join('');
 }
 
-// 추천 도서 갤러리 렌더링
 function renderRecommendations() {
   const gridEl = document.getElementById('class-recommend-grid');
   const wallEl = document.getElementById('hall-rec-wall');
@@ -833,9 +837,8 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
   const currentYM = now.toISOString().substring(0, 7);
   const currentMonthNum = now.getMonth() + 1;
 
-  // 1) 📅 독서 랭킹 (이달의 독서 권수 안전 계산)
   const myMonthlyReadCount = state.readings.filter(b => {
-    if (!b.startDate) return true; // 날짜가 기재된 모든 책 기본 계산
+    if (!b.startDate) return true;
     return b.startDate.substring(0, 7) === currentYM;
   }).length;
 
@@ -891,7 +894,6 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
     }
   }
 
-  // 2) 🏃 줄넘기 랭킹 (오늘의 최신 줄넘기 갯수 계산)
   const myTodayJump = state.jumpRopes.length > 0 ? state.jumpRopes[state.jumpRopes.length - 1].total : 0;
   
   const classmatesJump = [];
@@ -944,7 +946,6 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
     }
   }
 
-  // 뱃지 컬렉션
   const rBadgeGrid = document.getElementById('reading-badge-grid');
   if (rBadgeGrid) {
     rBadgeGrid.innerHTML = READING_BADGES.map(b => {
@@ -974,26 +975,75 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
   }
 }
 
-function renderCertificate(readCount, jumpTotalSum, beanStage, butterflyStage) {
-  document.getElementById('cert-book-val').textContent = `${readCount} 권`;
-  document.getElementById('cert-jump-val').textContent = `${jumpTotalSum} 회`;
+// 월별 선택 옵션 동적 업데이트
+function updateMonthSelectOptions() {
+  const monthSelect = document.getElementById('cert-month-select');
+  if (!monthSelect) return;
 
-  const maxJumpRecord = state.jumpRopes.reduce((max, curr) => curr.total > max ? curr.total : max, 0);
-  document.getElementById('cert-max-val').textContent = `${maxJumpRecord} 회`;
+  const currentYM = new Date().toISOString().substring(0, 7);
+  const ymSet = new Set([currentYM]);
 
-  document.getElementById('cert-bean-icon').textContent = beanStage.icon;
-  document.getElementById('cert-bean-text').textContent = `${beanStage.name} (누적 독서 ${readCount}권)`;
+  state.readings.forEach(r => {
+    if (r.startDate && r.startDate.length >= 7) ymSet.add(r.startDate.substring(0, 7));
+  });
 
-  document.getElementById('cert-butterfly-icon').textContent = butterflyStage.icon;
-  document.getElementById('cert-butterfly-text').textContent = `${butterflyStage.name} (줄넘기 ${state.jumpRopes.length}회 기록)`;
+  state.jumpRopes.forEach(j => {
+    if (j.date && j.date.length >= 7) ymSet.add(j.date.substring(0, 7));
+  });
+
+  const ymList = Array.from(ymSet).sort().reverse();
+
+  if (!ymList.includes(selectedAchievementYM)) {
+    selectedAchievementYM = currentYM;
+  }
+
+  monthSelect.innerHTML = ymList.map(ym => {
+    const [y, m] = ym.split('-');
+    const label = `${y}년 ${parseInt(m)}월`;
+    return `<option value="${ym}" ${ym === selectedAchievementYM ? 'selected' : ''}>${label}</option>`;
+  }).join('');
+}
+
+// 월별 성취 리포트 상장 렌더링
+function renderCertificate() {
+  updateMonthSelectOptions();
+
+  const [selYear, selMonthStr] = selectedAchievementYM.split('-');
+  const selMonthNum = parseInt(selMonthStr);
+
+  const monthlyReads = state.readings.filter(r => r.startDate && r.startDate.substring(0, 7) === selectedAchievementYM);
+  const mReadCount = monthlyReads.length;
+
+  const monthlyJumps = state.jumpRopes.filter(j => j.date && j.date.substring(0, 7) === selectedAchievementYM);
+  const mJumpTotalSum = monthlyJumps.reduce((acc, j) => acc + (j.total || 0), 0);
+  const mMaxJumpRecord = monthlyJumps.reduce((max, j) => (j.total > max ? j.total : max), 0);
+
+  const mBeanStage = getBeanStage(mReadCount);
+  const mButterflyStage = getButterflyStage(monthlyJumps.length);
+
+  const badgeEl = document.querySelector('#certificate-paper .cert-badge');
+  if (badgeEl) badgeEl.textContent = `🏅 ${selYear}년 ${selMonthNum}월 성 취 상 장 🏅`;
+
+  const certSub = document.getElementById('cert-class-subtitle');
+  if (certSub) certSub.textContent = `${state.userClass.school} ${state.userClass.grade}학년 ${state.userClass.classNum}반 | ${selYear}년 ${selMonthNum}월 독서 & 줄넘기 성장 기록`;
+
+  document.getElementById('cert-book-val').textContent = `${mReadCount} 권`;
+  document.getElementById('cert-jump-val').textContent = `${mJumpTotalSum} 회`;
+  document.getElementById('cert-max-val').textContent = `${mMaxJumpRecord} 회`;
+
+  document.getElementById('cert-bean-icon').textContent = mBeanStage.icon;
+  document.getElementById('cert-bean-text').textContent = `${mBeanStage.name} (${selMonthNum}월 독서 ${mReadCount}권)`;
+
+  document.getElementById('cert-butterfly-icon').textContent = mButterflyStage.icon;
+  document.getElementById('cert-butterfly-text').textContent = `${mButterflyStage.name} (${selMonthNum}월 줄넘기 ${monthlyJumps.length}회 기록)`;
 
   let cheerMsg = "";
-  if (readCount >= 5 && jumpTotalSum >= 200) {
-    cheerMsg = `"와우! 책도 쑥쑥 읽고 줄넘기도 열정적으로 시도하며 몸과 마음이 완벽한 조화를 이루고 있군요! 강낭콩 꼬투리가 맺히고 배추흰나비가 날개를 크게 펼치듯, 당신의 꿈도 더욱 환하게 빛날 것입니다! 축하해요!"`;
-  } else if (readCount >= 3 || jumpTotalSum >= 100) {
-    cheerMsg = `"독서로 넓은 세상을 만나고, 줄넘기로 몸을 활기차게 움직이는 모습이 참 대견합니다! 조금씩 꾸준히 노력하는 당신은 매일 멋지게 자라나는 강낭콩과 예쁜 애벌레 같습니다. 계속해서 응원해요!"`;
+  if (mReadCount >= 4 && mJumpTotalSum >= 150) {
+    cheerMsg = `"${selYear}년 ${selMonthNum}월 한 달 동안 책도 마음껏 읽고 줄넘기도 열정적으로 뛰어넘으며 몸과 마음이 대단히 크게 성장했습니다! 탐스러운 강낭콩 꼬투리가 맺히고 배추흰나비가 날개를 넓게 펴듯, 다음 달에도 빛나는 도전을 응원합니다!"`;
+  } else if (mReadCount >= 2 || mJumpTotalSum >= 50) {
+    cheerMsg = `"${selYear}년 ${selMonthNum}월 동안 독서로 지혜를 넓히고, 줄넘기로 건강한 땀방울을 흘린 모습이 정말 대견합니다! 하루하루 노력하는 당신은 파릇하게 자라는 강낭콩과 귀여운 애벌레처럼 매일매일 멋지게 변화하고 있어요!"`;
   } else {
-    cheerMsg = `"독서와 줄넘기를 시작하는 소중한 발걸음을 환영합니다! 작은 강낭콩 씨앗과 작은 알에서 매일 성장하듯, 차근차근 기록을 쌓아가다 보면 언제나 훌륭하고 멋진 나를 만나게 될 것입니다! 힘내세요!"`;
+    cheerMsg = `"${selYear}년 ${selMonthNum}월의 소중한 도전을 축하합니다! 흙 속의 강낭콩 씨앗과 배추 잎 위의 쪼그만 알처럼, 차근차근 기록을 쌓아가다 보면 누구보다 빛나는 멋진 나를 만나게 될 것입니다! 파이팅!"`;
   }
 
   document.getElementById('cert-cheer-message').textContent = cheerMsg;

@@ -147,7 +147,7 @@
           <div class="growth-card bean-theme">
             <div class="card-header">
               <span class="card-tag">📚 독서 마스코트</span>
-              <h4>강낭콩이의 한살이 🫘</h4>
+              <h4>강낭콩의 한살이 🫘</h4>
             </div>
             <div class="card-body">
               <div class="stage-visual">
@@ -184,7 +184,7 @@
           <div class="growth-card butterfly-theme">
             <div class="card-header">
               <span class="card-tag">🏃 줄넘기 마스코트</span>
-              <h4>나비나비의 한살이 🦋</h4>
+              <h4>나비의 한살이 🦋</h4>
             </div>
             <div class="card-body">
               <div class="stage-visual">
@@ -535,6 +535,15 @@
             <p>한 페이지로 정리된 나의 줄넘기와 독서 성장 기록! 칭찬과 응원의 카드를 받아보세요.</p>
           </div>
           <button class="btn btn-outline" id="btn-print-certificate">🖨️ 성취 상장 카드로 인쇄/저장하기</button>
+        </div>
+
+        <!-- 📅 월별 조회 필터 컨트롤 바 -->
+        <div class="card cert-month-filter print-hide" style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 24px; background: rgba(255, 255, 255, 0.85); border-radius: 16px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 16px; font-weight: 800; color: var(--primary-hover);">📅 월별 성취 보기:</span>
+            <select id="cert-month-select" class="form-select" style="width: 170px; font-size: 15px; font-weight: 700; cursor: pointer; padding: 8px 12px; border-radius: 10px; border: 2px solid var(--primary-color); background: #fff;"></select>
+          </div>
+          <span style="font-size: 14px; color: var(--text-medium); font-weight: 600;">💡 조회하고 싶은 월을 선택하면 그 달의 독서 & 줄넘기 성취 상장과 맞춤 응원이 업그레이드됩니다!</span>
         </div>
 
         <div class="certificate-card" id="certificate-paper">
