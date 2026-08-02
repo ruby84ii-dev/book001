@@ -11,7 +11,7 @@
 // --- 1. 상태 및 상수 정의 ---
 const STORAGE_KEYS = {
   JUMP_ROPE: 'growing_me_jump_rope_v1',
-  READING: 'growing_me_reading_v1',
+  READING: 'growing_me_reading_v2',
   USER_CLASS: 'growing_me_class_v1'
 };
 
@@ -163,11 +163,7 @@ function initLocalData() {
   if (savedRead) {
     state.readings = JSON.parse(savedRead);
   } else {
-    state.readings = [
-      { id: 1, title: '강낭콩의 한살이 비밀', author: '김자연', startDate: '2026-08-01', endDate: '2026-08-02', rating: 5, isRecommended: true, quote: '씨앗에서 떡잎이 돋아나고 꽃이 피는 한살이 모습이 신기했다!' },
-      { id: 2, title: '초등 줄넘기 왕 되기', author: '박운동', startDate: '2026-08-01', endDate: '2026-08-01', rating: 4, isRecommended: false, quote: '발 번갈아 뛰기를 할 때 리듬을 타는 비법을 새로 알게 되었다.' },
-      { id: 3, title: '배추흰나비의 날개짓', author: '이곤충', startDate: '2026-08-02', endDate: '2026-08-02', rating: 5, isRecommended: true, quote: '애벌레가 번데기를 지나 나비가 되어 하늘을 나는 것이 정말 대단해!' }
-    ];
+    state.readings = [];
     saveData();
   }
 }
