@@ -239,6 +239,11 @@ function setupEvents() {
     if (e.target.id === 'class-modal') classModal?.classList.remove('active');
   });
 
+  const classModalContent = classModal?.querySelector('.modal-content');
+  classModalContent?.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
   document.getElementById('class-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     state.userClass.school = document.getElementById('school-name-input').value.trim() || '서울초등학교';
