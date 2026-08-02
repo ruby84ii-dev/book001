@@ -1,7 +1,7 @@
 /* ==========================================
    매일 쑥쑥 멋진 나 - 초등 3학년 습관 기록장 App Logic
-   - LocalStorage & Firebase Auth/Firestore DB
-   - School-Grade-Class Selector & Class Leaderboard
+   - LocalStorage & Firebase Auth/Firestore Realtime Class DB
+   - School-Grade-Class Selector & Real Classmates Leaderboard
    - Monthly Reading Leaderboard (이달의 다독왕)
    - Today's Jump Rope Leaderboard (오늘의 챔피언)
    - Mascot Life-Cycle (강낭콩 & 배추흰나비)
@@ -48,27 +48,22 @@ const JUMP_BADGES = [
 
 const BOOK_COLORS = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#1DD1A1', '#FF9F43', '#54A0FF', '#A55EEA', '#FF9FF3'];
 
-// 학급 비교용 데모 반 친구들 샘플 데이터 (이달의 독서량 & 오늘 줄넘기)
-const MOCK_CLASSMATES = [
-  { name: '김철수', monthlyRead: 5, todayJump: 110, recBook: { title: '어린이 과학 형사대', author: '고수진', quote: '추리가 너무 흥미진진해서 손을 뗄 수가 없었다!' } },
-  { name: '이영희', monthlyRead: 3, todayJump: 90, recBook: { title: '무지개 장수풍뎅이', author: '박곤충', quote: '곤충의 생태를 자세히 알아가는 것이 즐거웠다.' } },
-  { name: '박민수', monthlyRead: 2, todayJump: 140, recBook: { title: '마법의 수학 퀴즈', author: '정수학', quote: '수학 문제가 게임처럼 느껴지는 마법 같은 책!' } },
-  { name: '최지우', monthlyRead: 4, todayJump: 75, recBook: { title: '아홉 살의 마음', author: '박성우', quote: '내 마음속 기분을 여러 단어로 알아볼 수 있어 좋았다.' } }
-];
-
+// 통합 앱 상태
 let state = {
   jumpRopes: [],
   readings: [],
   userClass: {
-    school: '서울초등학교',
+    school: '해밀초등학교',
     grade: '3',
     classNum: '1',
     nickname: '멋진 어린이'
   },
-  currentUser: null
+  currentUser: null,
+  classmatesData: [] // 실제 반 친구들의 실시간 Firebase 데이터
 };
 
 let jumpChartInstance = null;
+let classUnsubscribe = null;
 
 // --- 2. 초기화 ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -88,6 +83,10 @@ function initClassConfig() {
     } catch (e) {}
   }
   updateClassHeaderDisplay();
+}
+
+function getClassId() {
+  return `${state.userClass.school.trim()}_${state.userClass.grade}_${state.userClass.classNum}`;
 }
 
 function updateClassHeaderDisplay() {
@@ -116,6 +115,7 @@ function updateClassHeaderDisplay() {
 function saveClassConfig() {
   localStorage.setItem(STORAGE_KEYS.USER_CLASS, JSON.stringify(state.userClass));
   updateClassHeaderDisplay();
+  listenToClassData();
 }
 
 function initFirebaseApp() {
@@ -135,6 +135,7 @@ function initFirebaseApp() {
         document.getElementById('user-photo').src = user.photoURL || 'https://via.placeholder.com/32';
       }
       loadFirestoreData(user.uid);
+      listenToClassData();
     } else {
       state.currentUser = null;
       if (loginBtn) loginBtn.style.display = 'inline-flex';
@@ -142,9 +143,31 @@ function initFirebaseApp() {
       state.jumpRopes = [];
       state.readings = [];
       initLocalData();
+      listenToClassData();
       renderAll();
     }
   });
+}
+
+// 실시간 학급 친구 데이터 수신기 (Firestore Realtime Listener)
+function listenToClassData() {
+  if (classUnsubscribe) classUnsubscribe();
+  if (!firebaseDb) return;
+
+  const classId = getClassId();
+  classUnsubscribe = firebaseDb.collection('classes').doc(classId).collection('members')
+    .onSnapshot(snapshot => {
+      const mates = [];
+      snapshot.forEach(doc => {
+        if (!state.currentUser || doc.id !== state.currentUser.uid) {
+          mates.push({ uid: doc.id, ...doc.data() });
+        }
+      });
+      state.classmatesData = mates;
+      renderAll();
+    }, err => {
+      console.warn("학급 데이터 구독 참고:", err);
+    });
 }
 
 function initLocalData() {
@@ -154,11 +177,7 @@ function initLocalData() {
   if (savedJump) {
     state.jumpRopes = JSON.parse(savedJump);
   } else {
-    state.jumpRopes = [
-      { id: 1, date: '2026-07-15', twoFeet: 30, alternate: 20, total: 50, feeling: '😀', note: '처음엔 쌩쌩이가 안 되었지만 재미있었다!' },
-      { id: 2, date: '2026-07-22', twoFeet: 45, alternate: 25, total: 70, feeling: '😃', note: '발 번갈아 뛰는 박수를 익혔다.' },
-      { id: 3, date: '2026-08-01', twoFeet: 60, alternate: 40, total: 100, feeling: '🥳', note: '드디어 100회 달성! 나비가 된 느낌!' }
-    ];
+    state.jumpRopes = [];
     saveData();
   }
 
@@ -173,15 +192,33 @@ function initLocalData() {
 function loadFirestoreData(uid) {
   if (!firebaseDb) return;
   
+  const localJumps = [...state.jumpRopes];
+  const localReads = [...state.readings];
+
   firebaseDb.collection('users').doc(uid).get().then(doc => {
     if (doc.exists) {
       const data = doc.data();
-      if (data.jumpRopes) state.jumpRopes = data.jumpRopes;
-      if (data.readings) state.readings = data.readings;
+      const dbJumps = data.jumpRopes || [];
+      const dbReads = data.readings || [];
+
+      const mergedJumps = [...dbJumps];
+      localJumps.forEach(lj => {
+        if (!mergedJumps.some(dj => dj.id === lj.id)) mergedJumps.push(lj);
+      });
+
+      const mergedReads = [...dbReads];
+      localReads.forEach(lr => {
+        if (!mergedReads.some(dr => dr.id === lr.id)) mergedReads.push(lr);
+      });
+
+      state.jumpRopes = mergedJumps;
+      state.readings = mergedReads;
+
       if (data.userClass) {
         state.userClass = data.userClass;
         saveClassConfig();
       }
+      syncToFirestore();
       renderAll();
     } else {
       syncToFirestore();
@@ -198,14 +235,21 @@ function saveData() {
 function syncToFirestore() {
   if (!firebaseDb || !state.currentUser) return;
   
-  const classId = `${state.userClass.school}_${state.userClass.grade}_${state.userClass.classNum}`;
-  firebaseDb.collection('users').doc(state.currentUser.uid).set({
+  const classId = getClassId();
+  const payload = {
+    nickname: state.currentUser.displayName || state.userClass.nickname,
     jumpRopes: state.jumpRopes,
     readings: state.readings,
     userClass: state.userClass,
     classId: classId,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-  }).catch(e => console.error("Firestore 저장 오류:", e));
+  };
+
+  // 내 개인 문서 저장
+  firebaseDb.collection('users').doc(state.currentUser.uid).set(payload).catch(e => console.error(e));
+
+  // 우리반 공용 공간 멤버 문서에 저장 (반 친구들과 공유)
+  firebaseDb.collection('classes').doc(classId).collection('members').doc(state.currentUser.uid).set(payload).catch(e => console.error(e));
 }
 
 function setupDates() {
@@ -219,7 +263,6 @@ function setupDates() {
 
 // --- 3. 이벤트 리스너 ---
 function setupEvents() {
-  // 학급 설정 모달
   const btnClassConfig = document.getElementById('btn-class-config');
   const classModal = document.getElementById('class-modal');
   const classModalClose = document.getElementById('class-modal-close-btn');
@@ -244,7 +287,7 @@ function setupEvents() {
 
   document.getElementById('class-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
-    state.userClass.school = document.getElementById('school-name-input').value.trim() || '서울초등학교';
+    state.userClass.school = document.getElementById('school-name-input').value.trim() || '해밀초등학교';
     state.userClass.grade = document.getElementById('grade-select').value;
     state.userClass.classNum = document.getElementById('class-num-input').value || '1';
     state.userClass.nickname = document.getElementById('user-nickname-input').value.trim() || '멋진 어린이';
@@ -253,15 +296,14 @@ function setupEvents() {
     saveData();
     renderAll();
     classModal?.classList.remove('active');
-    alert(`🏫 내 학급 프로필(${state.userClass.school} ${state.userClass.grade}-${state.userClass.classNum}반)이 성공적으로 설정되었습니다!`);
+    alert(`🏫 내 학급 프로필(${state.userClass.school} ${state.userClass.grade}-${state.userClass.classNum}반)이 설정되었습니다!`);
   });
 
-  // 구글 로그인/로그아웃
   document.getElementById('btn-google-login')?.addEventListener('click', () => {
     if (firebaseAuth && googleProvider) {
       firebaseAuth.signInWithPopup(googleProvider).catch(err => alert("구글 로그인 안내: " + err.message));
     } else {
-      alert("🌐 구글 로그인 기능은 Firebase 프로젝트 설정(firebase-config.js)을 연결한 후 사용하실 수 있습니다! 현재는 브라우저 저장소 모드로 작동합니다.");
+      alert("🌐 구글 로그인 기능은 Firebase 프로젝트 설정(firebase-config.js)을 연결한 후 사용하실 수 있습니다!");
     }
   });
 
@@ -278,12 +320,10 @@ function setupEvents() {
     }
   });
 
-  // 탭
   document.querySelectorAll('.main-nav .nav-btn').forEach(btn => {
     btn.addEventListener('click', () => switchTab(btn.getAttribute('data-tab')));
   });
 
-  // 서브 탭
   document.querySelectorAll('.sub-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
@@ -295,13 +335,11 @@ function setupEvents() {
     });
   });
 
-  // 바로가기
   document.getElementById('btn-quick-jump')?.addEventListener('click', () => switchTab('jump-rope'));
   document.getElementById('btn-quick-read')?.addEventListener('click', () => switchTab('reading'));
   document.getElementById('go-jump-rope')?.addEventListener('click', () => switchTab('jump-rope'));
   document.getElementById('go-reading')?.addEventListener('click', () => switchTab('reading'));
 
-  // 줄넘기 입력 자동 계산
   const twoFeetInput = document.getElementById('jump-two-feet');
   const alternateInput = document.getElementById('jump-alternate');
   const totalInput = document.getElementById('jump-total');
@@ -315,7 +353,6 @@ function setupEvents() {
   twoFeetInput?.addEventListener('input', suggestJumpTotal);
   alternateInput?.addEventListener('input', suggestJumpTotal);
 
-  // 이모지 선택
   document.querySelectorAll('#jump-feeling-group .feeling-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#jump-feeling-group .feeling-btn').forEach(b => b.classList.remove('active'));
@@ -323,7 +360,6 @@ function setupEvents() {
     });
   });
 
-  // 줄넘기 저장
   document.getElementById('jump-rope-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const date = document.getElementById('jump-date').value;
@@ -350,14 +386,13 @@ function setupEvents() {
     renderAll();
     fireConfetti();
 
-    alert(`🎉 오늘의 줄넘기 ${total}회가 멋지게 저장되었습니다! 참 잘했어요!`);
+    alert(`🎉 오늘의 줄넘기 ${total}회가 멋지게 저장되었습니다!`);
     document.getElementById('jump-two-feet').value = 0;
     document.getElementById('jump-alternate').value = 0;
     document.getElementById('jump-total').value = 0;
     document.getElementById('jump-note').value = '';
   });
 
-  // 별점
   document.querySelectorAll('#star-rating-box .star').forEach(star => {
     star.addEventListener('click', () => {
       const val = parseInt(star.getAttribute('data-val'));
@@ -370,7 +405,6 @@ function setupEvents() {
     });
   });
 
-  // 독서 저장
   document.getElementById('reading-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const title = document.getElementById('book-title').value.trim();
@@ -399,17 +433,15 @@ function setupEvents() {
     renderAll();
     fireConfetti();
 
-    alert(`📚 "${title}" 책이 내 서재와 이달의 추천 갤러리에 등록되었습니다! 대견해요!`);
+    alert(`📚 "${title}" 책이 등록되었습니다!`);
     document.getElementById('book-title').value = '';
     document.getElementById('book-author').value = '';
     document.getElementById('book-quote').value = '';
     document.getElementById('read-end-date').value = '';
   });
 
-  // 인쇄
   document.getElementById('btn-print-certificate')?.addEventListener('click', () => window.print());
 
-  // 모달 닫기
   document.getElementById('modal-close-btn')?.addEventListener('click', closeModal);
   document.getElementById('book-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'book-modal') closeModal();
@@ -461,30 +493,23 @@ function renderAll() {
   const beanStage = getBeanStage(readCount);
   const butterflyStage = getButterflyStage(jumpCount);
 
-  // 헤더
   document.getElementById('header-bean-icon').textContent = beanStage.icon;
   document.getElementById('header-bean-stage').textContent = beanStage.name.split(' ')[1] || beanStage.name;
   
   document.getElementById('header-butterfly-icon').textContent = butterflyStage.icon;
   document.getElementById('header-butterfly-stage').textContent = butterflyStage.name.split(' ')[1] || butterflyStage.name;
 
-  // 홈
   renderHomeMascots(readCount, jumpCount, beanStage, butterflyStage);
   renderHomeRecentList();
 
-  // 줄넘기
   renderJumpHistoryList();
   renderJumpChart();
 
-  // 독서
   renderBookshelf();
   renderReadingHistoryList();
   renderRecommendations();
 
-  // 명예의 전당 (이달의 독서 & 오늘의 줄넘기)
   renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterflyStage);
-
-  // 성취 리포트 (전체 누적)
   renderCertificate(readCount, jumpTotalSum, beanStage, butterflyStage);
 }
 
@@ -716,22 +741,41 @@ function renderReadingHistoryList() {
   `).join('');
 }
 
+// 실시간 추천 도서 갤러리 렌더링 (내 추천 + 학급 반 친구들의 실시간 추천)
 function renderRecommendations() {
   const gridEl = document.getElementById('class-recommend-grid');
   const wallEl = document.getElementById('hall-rec-wall');
 
-  const recList = state.readings.filter(b => b.isRecommended);
-  const classmateRecs = MOCK_CLASSMATES.map(c => ({
-    title: c.recBook.title,
-    author: c.recBook.author,
-    quote: c.recBook.quote,
-    by: c.name
+  const myRecList = state.readings.filter(b => b.isRecommended).map(r => ({
+    title: r.title,
+    author: r.author,
+    quote: r.quote,
+    by: state.userClass.nickname
   }));
 
-  const allRecs = [
-    ...recList.map(r => ({ title: r.title, author: r.author, quote: r.quote, by: state.userClass.nickname })),
-    ...classmateRecs
-  ];
+  const classmatesRecs = [];
+  state.classmatesData.forEach(mate => {
+    const mateNick = mate.nickname || mate.userClass?.nickname || '반 친구';
+    if (mate.readings && Array.isArray(mate.readings)) {
+      mate.readings.filter(b => b.isRecommended).forEach(r => {
+        classmatesRecs.push({
+          title: r.title,
+          author: r.author,
+          quote: r.quote,
+          by: mateNick
+        });
+      });
+    }
+  });
+
+  const allRecs = [...myRecList, ...classmatesRecs];
+
+  if (allRecs.length === 0) {
+    const emptyHtml = `<div style="text-align:center; padding: 20px; color:var(--text-medium); width:100%;">아직 추천된 책이 없어요. 감명 깊게 읽은 책의 [💖 우리반 추천]을 눌러보세요!</div>`;
+    if (gridEl) gridEl.innerHTML = emptyHtml;
+    if (wallEl) wallEl.innerHTML = emptyHtml;
+    return;
+  }
 
   const html = allRecs.map(item => `
     <div class="rec-item-card">
@@ -772,95 +816,115 @@ function closeModal() {
   document.getElementById('book-modal').classList.remove('active');
 }
 
-// 명예의 전당 (이달의 독서 누적 & 오늘의 줄넘기 갯수)
+// 실시간 명예의 전당 (동일 학급 내 실시간 데이터 계산)
 function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterflyStage) {
-  // 현재 년월 (YYYY-MM) 계산
   const now = new Date();
-  const currentYM = now.toISOString().substring(0, 7); // '2026-08'
-  const currentMonthNum = now.getMonth() + 1; // 8
+  const currentYM = now.toISOString().substring(0, 7);
+  const currentMonthNum = now.getMonth() + 1;
+  const todayStr = now.toISOString().split('T')[0];
 
-  // 1) 📅 독서 명예의 전당 (이달의 월별 누적 책 수 기준)
-  // 나의 이번 달 읽은 책 수 계산
+  // 1) 독서 랭킹 (이달의 독서 권수)
   const myMonthlyReadCount = state.readings.filter(b => b.startDate && b.startDate.substring(0, 7) === currentYM).length;
 
-  // 카드 타이틀에 현재 월 표시
   const titleEl = document.getElementById('monthly-reading-title');
   if (titleEl) titleEl.textContent = `📅 ${currentMonthNum}월의 우리반 다독왕 랭킹 TOP 5`;
 
-  const classmatesRead = MOCK_CLASSMATES.map(c => ({ name: c.name, count: c.monthlyRead, isMe: false }));
+  const classmatesRead = [];
+  state.classmatesData.forEach(mate => {
+    const mateNick = mate.nickname || mate.userClass?.nickname || '반 친구';
+    const mateReads = mate.readings && Array.isArray(mate.readings)
+      ? mate.readings.filter(b => b.startDate && b.startDate.substring(0, 7) === currentYM).length
+      : 0;
+    classmatesRead.push({ name: mateNick, count: mateReads, isMe: false });
+  });
+
   classmatesRead.push({ name: `${state.userClass.nickname} (나)`, count: myMonthlyReadCount, isMe: true });
-  
-  // 이번 달 독서 권수 내림차순 정렬
   classmatesRead.sort((a, b) => b.count - a.count);
 
   const rLeaderboard = document.getElementById('reading-leaderboard-list');
   if (rLeaderboard) {
-    rLeaderboard.innerHTML = classmatesRead.slice(0, 5).map((item, idx) => {
-      const rankNum = idx + 1;
-      let medal = `${rankNum}등`;
-      if (rankNum === 1) medal = '🥇 1등';
-      else if (rankNum === 2) medal = '🥈 2등';
-      else if (rankNum === 3) medal = '🥉 3등';
+    if (classmatesRead.length === 0 || (classmatesRead.length === 1 && myMonthlyReadCount === 0)) {
+      rLeaderboard.innerHTML = `<div style="text-align:center; padding: 20px; color:var(--text-medium);">우리반에서 첫 책을 읽고 이달의 다독왕 1등에 도전해보세요!</div>`;
+    } else {
+      rLeaderboard.innerHTML = classmatesRead.slice(0, 5).map((item, idx) => {
+        const rankNum = idx + 1;
+        let medal = `${rankNum}등`;
+        if (rankNum === 1) medal = '🥇 1등';
+        else if (rankNum === 2) medal = '🥈 2등';
+        else if (rankNum === 3) medal = '🥉 3등';
 
-      return `
-        <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
-          <div class="rank-badge-box">
-            <span class="rank-num">${medal}</span>
-            <span class="rank-name">${item.name}</span>
+        return `
+          <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
+            <div class="rank-badge-box">
+              <span class="rank-num">${medal}</span>
+              <span class="rank-name">${item.name}</span>
+            </div>
+            <strong class="rank-score">${item.count} 권</strong>
           </div>
-          <strong class="rank-score">${item.count} 권</strong>
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
+    }
   }
 
-  // 이달의 학급 독서 평균 연산
   const totalReadSum = classmatesRead.reduce((acc, c) => acc + c.count, 0);
-  const readAvg = (totalReadSum / classmatesRead.length).toFixed(1);
+  const readAvg = classmatesRead.length > 0 ? (totalReadSum / classmatesRead.length).toFixed(1) : '0.0';
 
   document.getElementById('reading-class-avg').textContent = `${readAvg} 권`;
   document.getElementById('reading-my-val').textContent = `${myMonthlyReadCount} 권`;
 
-  const readDiff = (myMonthlyReadCount - readAvg).toFixed(1);
+  const readDiff = (myMonthlyReadCount - parseFloat(readAvg)).toFixed(1);
   const readCheerEl = document.getElementById('reading-compare-cheer');
   if (readCheerEl) {
     if (readDiff >= 0) {
       readCheerEl.textContent = `👏 와우! ${currentMonthNum}월 우리반 평균보다 ${readDiff}권이나 더 읽었어요!`;
     } else {
-      readCheerEl.textContent = `💪 이번 달 우리반 평균까지 ${Math.abs(readDiff)}권 남았어요! 새로운 마음으로 도전해봐요!`;
+      readCheerEl.textContent = `💪 이번 달 우리반 평균까지 ${Math.abs(readDiff)}권 남았어요! 파이팅!`;
     }
   }
 
-  // 2) 🏃 줄넘기 명예의 전당 (오늘의 총 갯수 기준)
+  // 2) 줄넘기 랭킹 (오늘의 줄넘기 갯수)
   const myTodayJump = state.jumpRopes.length > 0 ? state.jumpRopes[state.jumpRopes.length - 1].total : 0;
-  const classmatesJump = MOCK_CLASSMATES.map(c => ({ name: c.name, score: c.todayJump, isMe: false }));
-  classmatesJump.push({ name: `${state.userClass.nickname} (나)`, score: myTodayJump, isMe: true });
+  
+  const classmatesJump = [];
+  state.classmatesData.forEach(mate => {
+    const mateNick = mate.nickname || mate.userClass?.nickname || '반 친구';
+    let mateTodayScore = 0;
+    if (mate.jumpRopes && Array.isArray(mate.jumpRopes) && mate.jumpRopes.length > 0) {
+      mateTodayScore = mate.jumpRopes[mate.jumpRopes.length - 1].total;
+    }
+    classmatesJump.push({ name: mateNick, score: mateTodayScore, isMe: false });
+  });
 
+  classmatesJump.push({ name: `${state.userClass.nickname} (나)`, score: myTodayJump, isMe: true });
   classmatesJump.sort((a, b) => b.score - a.score);
 
   const jLeaderboard = document.getElementById('jump-leaderboard-list');
   if (jLeaderboard) {
-    jLeaderboard.innerHTML = classmatesJump.slice(0, 5).map((item, idx) => {
-      const rankNum = idx + 1;
-      let medal = `${rankNum}등`;
-      if (rankNum === 1) medal = '🥇 1등';
-      else if (rankNum === 2) medal = '🥈 2등';
-      else if (rankNum === 3) medal = '🥉 3등';
+    if (classmatesJump.length === 0 || (classmatesJump.length === 1 && myTodayJump === 0)) {
+      jLeaderboard.innerHTML = `<div style="text-align:center; padding: 20px; color:var(--text-medium);">오늘 첫 줄넘기를 기록하고 챔피언에 도전해보세요!</div>`;
+    } else {
+      jLeaderboard.innerHTML = classmatesJump.slice(0, 5).map((item, idx) => {
+        const rankNum = idx + 1;
+        let medal = `${rankNum}등`;
+        if (rankNum === 1) medal = '🥇 1등';
+        else if (rankNum === 2) medal = '🥈 2등';
+        else if (rankNum === 3) medal = '🥉 3등';
 
-      return `
-        <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
-          <div class="rank-badge-box">
-            <span class="rank-num">${medal}</span>
-            <span class="rank-name">${item.name}</span>
+        return `
+          <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
+            <div class="rank-badge-box">
+              <span class="rank-num">${medal}</span>
+              <span class="rank-name">${item.name}</span>
+            </div>
+            <strong class="rank-score">${item.score} 회</strong>
           </div>
-          <strong class="rank-score">${item.score} 회</strong>
-        </div>
-      `;
-    }).join('');
+        `;
+      }).join('');
+    }
   }
 
   const totalJumpSum = classmatesJump.reduce((acc, c) => acc + c.score, 0);
-  const jumpAvg = Math.round(totalJumpSum / classmatesJump.length);
+  const jumpAvg = classmatesJump.length > 0 ? Math.round(totalJumpSum / classmatesJump.length) : 0;
 
   document.getElementById('jump-class-avg').textContent = `${jumpAvg} 회`;
   document.getElementById('jump-my-today').textContent = `${myTodayJump} 회`;
