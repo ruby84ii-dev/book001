@@ -59,7 +59,7 @@ let state = {
     nickname: '멋진 어린이'
   },
   currentUser: null,
-  classmatesData: [] // 실제 반 친구들의 실시간 Firebase 데이터
+  classmatesData: []
 };
 
 let jumpChartInstance = null;
@@ -85,8 +85,12 @@ function initClassConfig() {
   updateClassHeaderDisplay();
 }
 
+// 띄어쓰기 공백을 제거한 안전한 학급 ID 생성 (학급 룸 이탈 방지)
 function getClassId() {
-  return `${state.userClass.school.trim()}_${state.userClass.grade}_${state.userClass.classNum}`;
+  const cleanSchool = (state.userClass.school || '해밀초등학교').trim().replace(/\s+/g, '');
+  const cleanGrade = (state.userClass.grade || '3').toString().trim();
+  const cleanClass = (state.userClass.classNum || '1').toString().trim();
+  return `${cleanSchool}_${cleanGrade}_${cleanClass}`;
 }
 
 function updateClassHeaderDisplay() {
@@ -100,7 +104,7 @@ function updateClassHeaderDisplay() {
   if (elNick) elNick.textContent = state.userClass.nickname;
 
   const tagRead = document.getElementById('hall-reading-class-tag');
-  if (tagRead) tagRead.textContent = `${state.userClass.grade}-${state.userClass.classNum}반 이달의 명예의 전당`;
+  if (tagRead) tagRead.textContent = `${state.userClass.grade}-${state.userClass.classNum}반 명예의 전당`;
   
   const certSub = document.getElementById('cert-class-subtitle');
   if (certSub) certSub.textContent = `${state.userClass.school} ${state.userClass.grade}학년 ${state.userClass.classNum}반 | 독서 & 줄넘기 성장 기록`;
@@ -149,7 +153,7 @@ function initFirebaseApp() {
   });
 }
 
-// 실시간 학급 친구 데이터 수신기 (Firestore Realtime Listener)
+// 학급 실시간 통합 구독 수신기 (Firestore Realtime Class Listener)
 function listenToClassData() {
   if (classUnsubscribe) classUnsubscribe();
   if (!firebaseDb) return;
@@ -166,7 +170,7 @@ function listenToClassData() {
       state.classmatesData = mates;
       renderAll();
     }, err => {
-      console.warn("학급 데이터 구독 참고:", err);
+      console.warn("학급 데이터 실시간 리스너 참고:", err);
     });
 }
 
@@ -246,15 +250,13 @@ function syncToFirestore() {
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   };
 
-  // 내 개인 문서 저장
   firebaseDb.collection('users').doc(state.currentUser.uid).set(payload).catch(e => console.error("users 저장 참고:", e));
 
-  // 우리반 공용 공간에 저장 (친구들이 읽을 수 있도록)
   firebaseDb.collection('classes').doc(classId).collection('members').doc(state.currentUser.uid).set(payload)
     .then(() => {
-      console.log("🔥 반 친구 공유 공간에 성공적으로 업로드되었습니다!");
+      console.log("🔥 학급 공유 공간에 데이터가 성공적으로 동기화되었습니다!");
     })
-    .catch(e => console.error("classes 멤버 저장 참고 (보안규칙 확인 필요):", e));
+    .catch(e => console.error("classes 멤버 저장 참고:", e));
 }
 
 function setupDates() {
@@ -746,7 +748,7 @@ function renderReadingHistoryList() {
   `).join('');
 }
 
-// 실시간 추천 도서 갤러리 렌더링 (내 추천 + 학급 반 친구들의 실시간 추천)
+// 추천 도서 갤러리 렌더링
 function renderRecommendations() {
   const gridEl = document.getElementById('class-recommend-grid');
   const wallEl = document.getElementById('hall-rec-wall');
@@ -821,15 +823,17 @@ function closeModal() {
   document.getElementById('book-modal').classList.remove('active');
 }
 
-// 실시간 명예의 전당 (동일 학급 내 실시간 데이터 계산)
+// 명예의 전당 (이달의 독서 & 오늘의 줄넘기)
 function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterflyStage) {
   const now = new Date();
   const currentYM = now.toISOString().substring(0, 7);
   const currentMonthNum = now.getMonth() + 1;
-  const todayStr = now.toISOString().split('T')[0];
 
-  // 1) 독서 랭킹 (이달의 독서 권수)
-  const myMonthlyReadCount = state.readings.filter(b => b.startDate && b.startDate.substring(0, 7) === currentYM).length;
+  // 1) 📅 독서 랭킹 (이달의 독서 권수 안전 계산)
+  const myMonthlyReadCount = state.readings.filter(b => {
+    if (!b.startDate) return true; // 날짜가 기재된 모든 책 기본 계산
+    return b.startDate.substring(0, 7) === currentYM;
+  }).length;
 
   const titleEl = document.getElementById('monthly-reading-title');
   if (titleEl) titleEl.textContent = `📅 ${currentMonthNum}월의 우리반 다독왕 랭킹 TOP 5`;
@@ -838,7 +842,7 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
   state.classmatesData.forEach(mate => {
     const mateNick = mate.nickname || mate.userClass?.nickname || '반 친구';
     const mateReads = mate.readings && Array.isArray(mate.readings)
-      ? mate.readings.filter(b => b.startDate && b.startDate.substring(0, 7) === currentYM).length
+      ? mate.readings.filter(b => !b.startDate || b.startDate.substring(0, 7) === currentYM).length
       : 0;
     classmatesRead.push({ name: mateNick, count: mateReads, isMe: false });
   });
@@ -848,27 +852,23 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
 
   const rLeaderboard = document.getElementById('reading-leaderboard-list');
   if (rLeaderboard) {
-    if (classmatesRead.length === 0 || (classmatesRead.length === 1 && myMonthlyReadCount === 0)) {
-      rLeaderboard.innerHTML = `<div style="text-align:center; padding: 20px; color:var(--text-medium);">우리반에서 첫 책을 읽고 이달의 다독왕 1등에 도전해보세요!</div>`;
-    } else {
-      rLeaderboard.innerHTML = classmatesRead.slice(0, 5).map((item, idx) => {
-        const rankNum = idx + 1;
-        let medal = `${rankNum}등`;
-        if (rankNum === 1) medal = '🥇 1등';
-        else if (rankNum === 2) medal = '🥈 2등';
-        else if (rankNum === 3) medal = '🥉 3등';
+    rLeaderboard.innerHTML = classmatesRead.slice(0, 5).map((item, idx) => {
+      const rankNum = idx + 1;
+      let medal = `${rankNum}등`;
+      if (rankNum === 1) medal = '🥇 1등';
+      else if (rankNum === 2) medal = '🥈 2등';
+      else if (rankNum === 3) medal = '🥉 3등';
 
-        return `
-          <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
-            <div class="rank-badge-box">
-              <span class="rank-num">${medal}</span>
-              <span class="rank-name">${item.name}</span>
-            </div>
-            <strong class="rank-score">${item.count} 권</strong>
+      return `
+        <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
+          <div class="rank-badge-box">
+            <span class="rank-num">${medal}</span>
+            <span class="rank-name">${item.name}</span>
           </div>
-        `;
-      }).join('');
-    }
+          <strong class="rank-score">${item.count} 권</strong>
+        </div>
+      `;
+    }).join('');
   }
 
   const totalReadSum = classmatesRead.reduce((acc, c) => acc + c.count, 0);
@@ -887,7 +887,7 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
     }
   }
 
-  // 2) 줄넘기 랭킹 (오늘의 줄넘기 갯수)
+  // 2) 🏃 줄넘기 랭킹 (오늘의 최신 줄넘기 갯수 계산)
   const myTodayJump = state.jumpRopes.length > 0 ? state.jumpRopes[state.jumpRopes.length - 1].total : 0;
   
   const classmatesJump = [];
@@ -905,27 +905,23 @@ function renderHallOfFame(readCount, jumpCount, jumpTotalSum, beanStage, butterf
 
   const jLeaderboard = document.getElementById('jump-leaderboard-list');
   if (jLeaderboard) {
-    if (classmatesJump.length === 0 || (classmatesJump.length === 1 && myTodayJump === 0)) {
-      jLeaderboard.innerHTML = `<div style="text-align:center; padding: 20px; color:var(--text-medium);">오늘 첫 줄넘기를 기록하고 챔피언에 도전해보세요!</div>`;
-    } else {
-      jLeaderboard.innerHTML = classmatesJump.slice(0, 5).map((item, idx) => {
-        const rankNum = idx + 1;
-        let medal = `${rankNum}등`;
-        if (rankNum === 1) medal = '🥇 1등';
-        else if (rankNum === 2) medal = '🥈 2등';
-        else if (rankNum === 3) medal = '🥉 3등';
+    jLeaderboard.innerHTML = classmatesJump.slice(0, 5).map((item, idx) => {
+      const rankNum = idx + 1;
+      let medal = `${rankNum}등`;
+      if (rankNum === 1) medal = '🥇 1등';
+      else if (rankNum === 2) medal = '🥈 2등';
+      else if (rankNum === 3) medal = '🥉 3등';
 
-        return `
-          <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
-            <div class="rank-badge-box">
-              <span class="rank-num">${medal}</span>
-              <span class="rank-name">${item.name}</span>
-            </div>
-            <strong class="rank-score">${item.score} 회</strong>
+      return `
+        <div class="leaderboard-item rank-${rankNum} ${item.isMe ? 'is-me' : ''}">
+          <div class="rank-badge-box">
+            <span class="rank-num">${medal}</span>
+            <span class="rank-name">${item.name}</span>
           </div>
-        `;
-      }).join('');
-    }
+          <strong class="rank-score">${item.score} 회</strong>
+        </div>
+      `;
+    }).join('');
   }
 
   const totalJumpSum = classmatesJump.reduce((acc, c) => acc + c.score, 0);
